@@ -1,0 +1,47 @@
+- name: Schedule a SUMA job playbook
+  hosts: all
+  gather_facts: true
+  vars_files:
+    - suma_config.yaml
+  tasks:
+    - name: Decrypt the SUSE Manager API password
+      set_fact:
+        decrypted_password: "{{ lookup('pipe', 'python3.11 decrypt_password.py ' ~ suma_api_password ~ ' suma_key') }}"
+        cacheable: true
+      no_log: true
+
+    - name: Set suma credentials as facts
+      set_fact:
+        suma_api_username: "{{ suma_api_username }}"
+        suma_api_password: "{{ decrypted_password }}"
+        suma_server: "{{ suma_server }}"
+        cacheable: true
+      no_log: true
+
+    - name: Capture minion_id from /etc/venv-salt-minion/minion_id
+      ansible.builtin.shell: cat /etc/venv-salt-minion/minion_id
+      register: minion_id
+        
+    - name: Check for running Jobs in SUMA for "{{ minion_id.stdout }}"  
+      suma_module:
+        action: "check_job"
+        system_name: "{{ minion_id.stdout }}"
+        suma_api_username: "{{ suma_api_username }}"
+        suma_api_password: "{{ decrypted_password }}"
+        suma_server: "{{ suma_server }}"
+      register: job_info
+      no_log: true
+      delegate_to: localhost
+      ignore_errors: false
+      when: 
+        - minion_id is defined
+        - minion_id.stdout != ""
+
+    - name: Debug job_info
+      debug:
+        var: job_info
+
+    - name: make another task
+      ansible.builtin.shell:
+        cmd: ps aux | grep salt
+      when: job_info.failed == false
