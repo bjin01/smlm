@@ -88,7 +88,7 @@ def main():
                 module.fail_json(**result)
                 
         if params['action'] == 'schedule_patch' and system_id != 0:
-            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now())
+            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=3))
             list_system_ids = []
             list_system_ids.append(system_id)
             job_id = client.system.schedulePackageUpdate(session_key, list_system_ids, earliest_occurrence)
@@ -99,7 +99,7 @@ def main():
             module.exit_json(changed=True, job_id=job_id)
           
         elif params['action'] == 'schedule_package_refresh' and system_id != 0:
-            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now() + timedelta(minutes=3))
+            earliest_occurrence = six.moves.xmlrpc_client.DateTime(datetime.now())
             job_id = client.system.schedulePackageRefresh(session_key, system_id, earliest_occurrence)
             result['changed'] = True
             result['message'] = "A package refresh job has been scheduled."
