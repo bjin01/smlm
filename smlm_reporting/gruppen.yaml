@@ -1,0 +1,14 @@
+T1:
+  groups:
+    - test
+    - SLES15
+  emails:
+    - test@example.com
+    - test2@example.com
+T2:
+  groups:
+    - SLES15
+    - testasfd
+    - test1
+  emails:
+    - test@example.com

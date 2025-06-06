@@ -1,10 +1,13 @@
-suma_api_username: myuser
-suma_api_password: gAAAAABoJ3hTqc303PH94WrevOerzj4ZWrx0eDC7JNlqRdT6GWjpBpKrDqybshF1t7ZwaRFzADqEPKB5p1BpptBctBQQumXf2A==
-suma_server: mysmlm@example.com
+suma_api_username: api1
+suma_api_password: gAAAAABoJ3hTqc303PH94WrevOerzj4ZWrx0eDC7
+suma_server: test.example.com
 smtp_server: smtp.example.com
 smtp_port: 25
 email_from: suma@example.com
 sender_password: ""
 email_recipients: 
-  - me@example.com
+  - test@example.com
 email_subject: "SUMA Report"
+pre_html_file: "pre.html"
+post_html_file: "post.html"
+groups_definition: "gruppen.yaml"

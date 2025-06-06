@@ -16,10 +16,10 @@ import argparse
 import logging
 import os
 import yaml
-import html
 import six
 from datetime import datetime,  timedelta
 from contextlib import contextmanager
+
 
 from typing import Any, TYPE_CHECKING
 import smtplib
@@ -125,8 +125,8 @@ def _get_suma_configuration(suma_config_file="suma_config.yaml"):
                 'email_recipients': suma_config.get('email_recipients', []),
                 'email_subject': suma_config.get('email_subject', "subject"),
                 'pre_html_file': suma_config.get('pre_html_file', ""),
-                'post_html_file': suma_config.get('post_html_file', "")
-
+                'post_html_file': suma_config.get('post_html_file', ""),
+                'groups_definition': suma_config.get('groups_definition', "")
             }
             return ret
         except Exception as exc:  # pylint: disable=broad-except
@@ -238,22 +238,7 @@ def get_systems_by_group(client, key, groupname):
         err_msg = 'Exception raised while get systemgroup.listSystemsMinimal: {0}'.format(exc)
         log.error(err_msg)
         return {"Error": exc}
-    return 
-
-def get_groups_from_system(client, key, systemid):
-    groups_string = ""
-    try:
-        listGroups_result = client.system.listGroups(key, systemid)
-        if len(listGroups_result) > 0:
-            for group in listGroups_result:
-                if int(group["subscribed"]) == 1:
-                    g_name = group["system_group_name"]
-                    groups_string += f"{g_name}\n"
-            return {"groups": groups_string}
-    except Exception as exc:
-        err_msg = 'Exception raised while get listSystemsMinimal: {0}'.format(exc)
-        log.error(err_msg)
-        return {'groups': groups_string}
+    return
     
 
 def write_html(suma_config_file, output_html_file, pre_html_file, post_html_file, final_result, groups=[]):
@@ -277,7 +262,7 @@ def write_html(suma_config_file, output_html_file, pre_html_file, post_html_file
                 url_text.append(f"<p>Gruppe: <a href='{url}{g['id']}' style='text-decoration:none; color:blue;'>{g['name']}</a> Anmerkung: {g['comment']}</p>")
             else:
                 log.info("g['comment']: {}".format(g['comment']))
-                
+                import html
                 url_text.append(f"<p>Gruppe: {g['name']} Anmerkung: {html.escape(str(g['comment']))}</p>")
 
     try:
@@ -310,7 +295,9 @@ def write_html(suma_config_file, output_html_file, pre_html_file, post_html_file
                 param_file.write("<tr>")
                 for key in rows.values():
                     k_name = key.get("key_name")
+                    #param_file.write(f"<td>{row.get(k_name, '')}</td>")
                     if k_name in ["outdated_pkg_count", "extra_pkg_count"] and row.get(k_name, 0) > color_threshold:
+                        #print("row.get(k_name, '') {}".format(row.get(k_name, '')))
                         param_file.write(f"<td style='color:red;'>{row.get(k_name, '')}</td>")
                     else:
                         param_file.write(f"<td>{row.get(k_name, '')}</td>")
@@ -331,17 +318,14 @@ def write_html(suma_config_file, output_html_file, pre_html_file, post_html_file
 
 def send_email(smtp_server, smtp_port, email_from, sender_password, email_recipients, email_subject, attachment_path):
 
+    if isinstance(email_recipients, list):
+        recipient_email = ", ".join(email_recipients)
     try:
-        # Create the email
         msg = MIMEMultipart()
         msg['From'] = email_from
-        if isinstance(email_recipients, list):
-            msg['To'] = ", ".join(email_recipients)
-        else:
-            msg['To'] = email_recipients
+        msg['To'] = recipient_email
         msg['Subject'] = email_subject
 
-        # Attach the file
         with open(attachment_path, 'r') as attachment:
             html_content = attachment.read()
             msg.attach(MIMEText(html_content, 'html'))
@@ -351,7 +335,6 @@ def send_email(smtp_server, smtp_port, email_from, sender_password, email_recipi
             part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(attachment_path)}')
             msg.attach(part)
 
-        # Connect to the SMTP server and send the email
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             if server.has_extn('STARTTLS'):
                 server.starttls()
@@ -359,7 +342,7 @@ def send_email(smtp_server, smtp_port, email_from, sender_password, email_recipi
                 server.login(email_from, sender_password)
             server.send_message(msg)
 
-        log.info(f"Email sent successfully to {email_recipients}")
+        log.info(f"Email sent successfully to {recipient_email}")
     except Exception as e:
         log.error(f"Failed to send email: {e}")
     
@@ -370,7 +353,7 @@ def last_rebooted(client, key, systemname):
     except Exception as exc:
         err_msg = 'Exception raised while get getId or getDetails: {0}'.format(exc)
         log.error(err_msg)
-        return {'Error': err_msg}
+        return {'Error': exc}
     
     if isinstance(system_details, dict):
             last_boot = ""
@@ -394,24 +377,21 @@ def get_groupid(client, key, groupname):
         return {'Error': exc}
     return
 
-def run_by_group(suma_config_file, output_html_file, groups, **kwargs):
+def run_by_group(suma_config_file, output_html_file, groups, emails, **kwargs):
     suma_config = _get_suma_configuration(suma_config_file)
     server = suma_config["servername"]
-    if isinstance(groups, str):
-        list_groups = [group.strip() for group in groups.split(",")]
-    else:
-        list_groups = groups
+    
     final_result = []
     try:
         client, key = _get_session(suma_config)
     except Exception as exc:  # pylint: disable=broad-except
         err_msg = 'Exception raised when connecting to spacewalk server ({0}): {1}'.format(server, exc)
         log.error(err_msg)
-        return {'Error': err_msg}
+        return {'Error': exc}
     
     groups_data = []
-
-    for groupname in list_groups:
+    
+    for groupname in groups:
         group_id = get_groupid(client, key, groupname)
         if isinstance(group_id, dict):
             #print("Group: {} {}".format(groupname, group_id["Error"]))
@@ -420,7 +400,7 @@ def run_by_group(suma_config_file, output_html_file, groups, **kwargs):
                 continue
 
         listSystems_result = get_systems_by_group(client, key, groupname)
-
+                
         if len(listSystems_result) > 0:
             len_systems = len(listSystems_result)
             groups_data.append({"name": groupname, "id": group_id, "comment": f"{len_systems} Systeme"})
@@ -447,7 +427,7 @@ def run_by_group(suma_config_file, output_html_file, groups, **kwargs):
                     final_result.append(system_dict)
         else:
             groups_data.append({"name": groupname, "id": group_id, "comment": "kein System in der Gruppe."})
-    
+            
     write_html(
         suma_config_file, 
         output_html_file, 
@@ -455,89 +435,13 @@ def run_by_group(suma_config_file, output_html_file, groups, **kwargs):
         suma_config.get("post_html_file", ""), 
         final_result, groups=groups_data
     )
-
-    send_email(
-        suma_config["smtp_server"],
-        suma_config["smtp_port"],
-        suma_config["email_from"],
-        suma_config["sender_password"],
-        suma_config["email_recipients"],
-        suma_config["email_subject"],
-        output_html_file,
-    )
-    return
-
-def run_all(suma_config_file, output_html_file="report.html", **kwargs):
-    final_result = []
-    suma_config = _get_suma_configuration(suma_config_file)
-    server = suma_config["servername"]
-    ret = dict()
-    ret["job_IDs"] = []
-    
-
-    if 'log_level' in kwargs:
-        set_log_level(kwargs["log_level"])
-    else:
-        log.setLevel(logging.INFO)
-    
-    try:
-        client, key = _get_session(suma_config)
-    except Exception as exc:  # pylint: disable=broad-except
-        err_msg = 'Exception raised when connecting to spacewalk server ({0}): {1}'.format(server, exc)
-        log.error(err_msg)
-        return {'Error': err_msg}
-
-    try:
-        listSystems_result = client.system.listSystems(key)
-    except Exception as exc:
-        err_msg = 'Exception raised while get listSystems: {0}'.format(exc)
-        log.error(err_msg)
-        return {'Error': err_msg}
-
-    if len(listSystems_result) > 0:
-        for system in listSystems_result:
-            if isinstance(system, dict):
-                last_boot = ""
-                if "last_boot" in system.keys():
-                    if system["last_boot"]:
-                        if isinstance(system["last_boot"], datetime):
-                            last_boot = system["last_boot"].strftime("%d.%m.%Y %H:%M")
-                        else:
-                            last_boot = system["last_boot"]
-
-                
-                system_dict = {"id": system["id"],
-                               "name": system["name"],
-                               "last_boot": last_boot}
-                
-                base_product = getproduct(client, key, system["id"])
-                system_dict.update(base_product)
-
-                pkg_info = getOutstandingPackages(client, key, system["name"], system["id"])
-                system_dict.update(pkg_info)
-
-                kernel_info = getkernel(client, key, system["id"])
-                system_dict.update(kernel_info)
-
-                system_groups = get_groups_from_system(client, key, system["id"])
-                system_dict.update(system_groups)
-
-                final_result.append(system_dict)
-    
-    write_html(
-        suma_config_file, 
-        output_html_file, 
-        suma_config.get("pre_html_file", ""),
-        suma_config.get("post_html_file", ""), 
-        final_result,
-        )
     
     send_email(
         suma_config["smtp_server"],
         suma_config["smtp_port"],
         suma_config["email_from"],
         suma_config["sender_password"],
-        suma_config["email_recipients"],
+        emails,
         suma_config["email_subject"],
         output_html_file,
     )
@@ -547,20 +451,30 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run SUSE Manager Report Generating.")
     parser.add_argument("--config", default="suma_config.yaml", help="Path to config file")
     parser.add_argument("--output-html-file", default="report.html", help="Path to output HTML report")
-    parser.add_argument("--groups", nargs='+', help="List of group names to include in the report")
-    parser.add_argument("params", nargs=argparse.REMAINDER, help="Additional key=value parameters")
+    #parser.add_argument("params", nargs=argparse.REMAINDER, help="Additional key=value parameters")
 
     args = parser.parse_args()
 
-    kwargs = {}
-    for param in args.params:
-        if '=' in param:
-            key, value = param.split('=', 1)
-            kwargs[key] = value
-    
-    if args.groups and len(args.groups) > 0:
-        run_by_group(args.config, args.output_html_file, args.groups, **kwargs)
-    else:
-        run_all(args.config, output_html_file=args.output_html_file, **kwargs)
+    suma_config = _get_suma_configuration(args.config)
 
+    if "groups_definition" in suma_config.keys() and suma_config["groups_definition"] != "":
+        try:
+            with open(suma_config["groups_definition"], 'r') as groups_file:
+                groups_definition = yaml.safe_load(groups_file)
+        except FileNotFoundError:
+            log.error(f"Groups definition file '{suma_config['groups_definition']}' not found.")
+            groups_definition = {}
+        except yaml.YAMLError as e:
+            log.error(f"Error parsing YAML file '{suma_config['groups_definition']}': {e}")
+            groups_definition = {}
+        
+        for technology, groups_emails in groups_definition.items():
+            gruppen = groups_emails["groups"]
+            recipients = groups_emails["emails"]
+            log.info(f"Running report for technology: {technology}, groups: {gruppen}, Send Report to: {recipients}")
+            run_by_group(args.config, args.output_html_file, gruppen, recipients)
+           
+    else:
+        log.info("No groups_definition or value given in suma_config. We exit here.")
+        exit()
     
