@@ -12,7 +12,7 @@
 #   - SMLM Images are present and SMLM initial setup is already finished.
 #   - All neccessary config files and this bash script are located in one directory on the host
 
-# Usage: # bash Build_Container.sh
+# Usage: # bash Build_Containers.sh
 
 # Major customizations done via this script:
 #   - install additional Software
