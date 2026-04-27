@@ -1,0 +1,7 @@
+psycopg[binary]
+pyyaml
+six
+requests
+salt
+
+

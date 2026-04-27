@@ -1,0 +1,268 @@
+#!/usr/bin/python3
+# coding: utf-8
+# pylint: disable=C0103
+"""
+Main smdba program script
+"""
+
+import sys
+import os
+import time
+import datetime
+import typing
+from threading import Thread
+from smdba.basegate import GateException
+from smdba.utils import eprint
+
+
+class Console:
+    """
+    Console app for SUSE Manager database control.
+
+    Author: Bo Maryniuk <bo@suse.de>
+    """
+
+    # General
+    VERSION = "1.7.11"
+    DEFAULT_CONFIG = "/etc/rhn/rhn.conf"
+
+    # Config
+    DB_BACKEND = "db_backend"
+
+    config: typing.Dict[str, str]
+    gate: typing.Any
+
+    def __init__(self, configpath: typing.Optional[str] = None):
+        """
+        Constructor.
+        """
+        self.config = {}
+        self.console_location = os.path.abspath(__file__)
+        self.config_file = configpath
+        if 'auto' not in sys.argv:
+            self.get_config()
+        else:
+            self.get_config_auto()
+        self.gate = None
+        self.load_db_backend()
+
+    def load_db_backend(self) -> None:
+        """
+        Load required backend for the database.
+        :raises Exception: if backend is unknown.
+        :returns: None
+        """
+        msg = None
+        try:
+            gate_name = "smdba." + self.config.get(self.DB_BACKEND, "unknown") + "gate"
+            __import__(gate_name)
+            self.gate = sys.modules[gate_name].get_gate(self.config)  # type: ignore
+            self.gate.check()
+        except GateException as ex:
+            msg = "Gate error: {}".format(str(ex))
+        except Exception as ex:
+            if self.config_file:
+                msg = "Unknown database backend. Please check {} configuration file.".format(self.config_file)
+            else:
+                msg = "Unknown database backend and config was not specified: {}".format(ex)
+        if msg:
+            raise Exception(msg)
+
+    def get_config_auto(self) -> None:
+        """
+        Manual config.
+
+        :raises Exception: if backend is not loaded
+        """
+        self.config = {}
+        _, params = self.get_opts(sys.argv[2:])
+        if 'backend' not in params.keys():
+            raise Exception("When using Auto, you need also load backend.\n"
+                            "But you should not manually use Auto at first place!")
+        self.config = {'db_backend': params.get('backend', 'unknown')}
+
+    def get_config(self) -> None:
+        """
+        Read rhn config for database type.
+
+        :raises Exception: if configuration file cannot be opened
+        :return: None
+        """
+        self.config = {}
+        self.config_file = self.config_file if self.config_file else self.DEFAULT_CONFIG
+
+        if os.path.exists(self.config_file):
+            cfg = open(self.config_file).readlines()
+        else:
+            raise Exception("Cannot open configuration file: " + self.config_file + "\n" + "Use sudo, perhaps?")
+
+        for line in cfg:
+            try:
+                key, value = line.replace(" ", "").strip().split("=", 1)
+                if key.startswith("db_"):
+                    # Handling odd change in Spacewalk 1.7 where "db_name" could be URI
+                    self.config[key] = value.split("/")[-1] if (key == "db_name") and value.startswith("//") else value
+            except Exception:
+                # Suppress error as config not loaded or broken, so is defaulted
+                pass
+
+    @staticmethod
+    def usage_header() -> None:
+        """
+        Print usage.
+
+        :return: None
+        """
+        print("SUSE Manager Database Control. Version", Console.VERSION)
+        print("Copyright (c) 2012-{0} by SUSE Linux LLC\n".format(datetime.date.today().year))
+
+    def usage(self, cmd: typing.Optional[str] = None) -> None:
+        """
+        Print usage.
+        """
+        if cmd:
+            hlp = self.gate.get_gate_commands().get(cmd)
+            print("Command:\n\t{}\n\nDescription:".format(self.translate_command(cmd)))
+            print("\t" + hlp.get('description', 'No description available') + "\n")
+            if hlp.get('help'):
+                print("Parameters:")
+                print('\n'.join(["\t" + hl.replace("@nl", "") for hl in hlp.get('help').split("\n")]) + "\n")
+            sys.exit(1)
+
+        eprint("Available commands:")
+
+        index_commands = []
+        longest = 0
+        for _cmd, _ in self.gate.get_gate_commands().items():
+            _cmd = self.translate_command(_cmd or "")
+            index_commands.append(_cmd)
+            longest = len(_cmd) if longest < len(_cmd) else longest
+
+        index_commands.sort()
+
+        for _cmd in index_commands:
+            eprint("\t", (_cmd + ((longest - len(_cmd)) * " ")), "\t",
+                   self.gate.get_gate_commands().get(self.translate_command(_cmd)).get('description', ''))
+
+        eprint("\nTo know a complete description of each command, use parameter 'help'.")
+        eprint("Usage:\n\tsmdba <command> help <ENTER>\n")
+
+    @staticmethod
+    def translate_command(command: str) -> str:
+        """
+        Translate from "do_something_like_this" as a method name
+        to "something-like-this" for CLI. And vice versa.
+
+        :param command: underscored command
+        :returns: hyphened command
+        """
+        return command[3:].replace("_", "-") if command.startswith("do_") else "do_" + command.replace("-", "_")
+
+    def execute(self, command: typing.List[str]) -> None:
+        """
+        Execute one command.
+
+        :param command: command to be executed.
+        :returns: None
+        """
+        if command[0].startswith('--'):
+            self.execute_static(command)
+        else:
+            method = self.translate_command(command[0])
+            if self.gate.get_gate_commands().get(method):
+                args, params = self.get_opts(command[1:])
+                if 'help' in args:
+                    self.usage(cmd=method)
+                params['__console_location'] = self.console_location
+                self.gate.startup()
+                getattr(self.gate, method)(*args, **params)
+                self.gate.finish()
+            else:
+                raise Exception(("The parameter \"%s\" is an unknown command.\n\n" % command[0]) +
+                                "Hint: Try with no parameters first, perhaps?")
+
+    def execute_static(self, commands: typing.List[str]) -> None:
+        """
+        Execute static commands.
+
+        :param commands: commands to be called.
+        :returns: None
+        """
+        if commands[0] == '--help':
+            self.usage()
+
+    @staticmethod
+    def get_opts(opts: typing.List[str]) -> typing.Tuple[typing.List[str], typing.Dict[str, str]]:
+        """
+        Parse --key=value params.
+        """
+        # When something more serious will be needed, standard lib might be used with more code. :)
+        params = {}
+        args = []
+        for opt_data in opts:
+            if opt_data.startswith("--"):
+                opt = opt_data.split("=", 1)
+                if len(opt) == 2:
+                    params[opt[0][2:]] = opt[1]
+                else:
+                    params[opt[0][2:]] = True
+            else:
+                args.append(opt_data)
+
+        return args, params
+
+
+def format_error(title: str, msg: Exception) -> None:
+    """
+    Format error on STDERR.
+    """
+    if msg:
+        eprint(title + ":\n", end="")
+        for line in str(msg).split("\n"):
+            eprint("\t" + line.strip())
+        eprint()
+
+
+def main() -> None:
+    """
+    Main app runner.
+    """
+    try:
+        console = Console()
+        if sys.argv[1:]:
+            console.execute(sys.argv[1:])
+        else:
+            Console.usage_header()
+            console.usage()
+    except GateException as err:
+        format_error("Backend error", err)
+        sys.exit(1)
+    except Exception as err:
+        format_error("General error", err)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    process = Thread(target=main)
+    process.start()
+
+    while process.is_alive():
+        try:
+            time.sleep(0.1)
+        except KeyboardInterrupt as err:
+            inp = None
+            print("\rCtrl+C? You are about to potentially ruin something!")
+            while inp not in ['y', 'n']:
+                try:
+                    inp = str(input("Can't wait and sure to break? (N/Y) ")).lower()
+                except Exception:
+                    inp = None
+                if inp and inp not in ['y', 'n']:
+                    print("Please answer 'y' or 'n'.")
+
+            if inp == 'n':
+                print("Smart choice!")
+                continue
+            else:
+                print("\rOK, as you wish. I quit.")
+                sys.exit(1)
