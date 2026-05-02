@@ -1,3 +1,5 @@
+import os
+
 import psycopg
 import sys
 import yaml
@@ -115,11 +117,11 @@ if __name__ == "__main__":
     sumagroups = dict()
 
     # Update these credentials to match your PostgreSQL configuration
-    dbname = "susemanager"
-    user = "spacewalk"
-    password = "tWEsT2x4B3wDU5cG7pbaRn"
-    host = "db"
-    port = 5432
+    dbname = os.getenv('DB_NAME', 'susemanager')
+    user = os.getenv('DB_USER', 'spacewalk')
+    password = os.getenv('DB_PWD', 'spacewalk')
+    host = os.getenv('DB_HOST', 'db')
+    port = int(os.getenv('DB_PORT', 5432))
 
     get_all_minions(sumagroups, dbname=dbname, user=user, password=password, host=host, port=port)
     get_suma_groups(sumagroups, dbname=dbname, user=user, password=password, host=host, port=port)

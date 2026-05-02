@@ -1,3 +1,5 @@
+import os
+
 import requests
 import sys
 import json
@@ -63,8 +65,8 @@ def run_salt_ping(master_url, username, password, eauth='sharedsecret', target='
 
 if __name__ == "__main__":
     # Adjust these values to match your environment
-    salt_master = "uyuni-server.mgr.internal"
-    salt_master_tornado_port = 8088
-    username = "mysalt"
-    password = "suselinux"
+    salt_master = os.getenv('SALT_MASTER', 'uyuni-server.mgr.internal')
+    salt_master_tornado_port = os.getenv('SALT_MASTER_TORNADO_PORT', '8000')  # Default to 8000 if not set
+    username = os.getenv('SALT_API_USER', 'salt')
+    password = os.getenv('SALT_API_SECRET', '')
     run_salt_ping(master_url=f'http://{salt_master}:{salt_master_tornado_port}', username=username, password=password)
