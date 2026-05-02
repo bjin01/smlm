@@ -9,7 +9,7 @@ def execute_sql(dbname, user, password, host='localhost', port=5432, query=""):
     Connects to a PostgreSQL database and lists all tables in the public schema.
     """
     try:
-        print(f"Connecting to database '{dbname}' on {host}...")
+        #print(f"Connecting to database '{dbname}' on {host}...")
         
         # Establishing the connection
         # Using a context manager ensures the connection is closed automatically
@@ -89,21 +89,28 @@ def get_minion_groups(sumagroups, dbname, user, password, host='localhost', port
         print(f"No rows found in get_minion_groups.")
         return
 
-    print(f"\Result from get_minion_groups':")
+    #print(f"\Result from get_minion_groups':")
 
                 
     for row in rows:
         if row[1] != "" and row[1] is not None and row[1] in sumagroups.keys():
             sumagroups[row[1]].append(row[0])
                 
-    print(f" - {sumagroups}")
+    #print(f" - {sumagroups}")
 
 def write_salt_pillar(sumagroups, pillar_dir="/srv/pillar", pillar_name="sumagroups", pillar_file="init.sls"):
     final_data = dict()
     final_data[pillar_name] = sumagroups
 
+    # Ensure the target directory exists
+    target_dir = f"{pillar_dir}/{pillar_name}"
+    if not os.path.exists(target_dir):
+        print(f"Creating directory: {target_dir}")
+        os.makedirs(target_dir, exist_ok=True)
+
     with open(f"{pillar_dir}/{pillar_name}/{pillar_file}", "w") as f:
         yaml.dump(final_data, f, default_flow_style=False, indent=4, width=80)
+        print(f"Written pillar data to {pillar_dir}/{pillar_name}/{pillar_file}")
 
 def refresh_minion_pillar(minion_id):
     import subprocess
